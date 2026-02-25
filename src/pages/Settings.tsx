@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowLeft, Plus, Trash2, Github, Twitter, Facebook, Linkedin, Instagram, Send, Globe, ChevronUp, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -15,6 +15,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import QRCodeGenerator from '@/components/QRCodeGenerator';
+import { useRouter } from 'next/router';
+import { SecretCodeModal } from '@/components/SecretCodeModal';
 
 const SOCIAL_PLATFORMS = [
   { id: 'github', name: 'GitHub', icon: Github },
@@ -115,7 +117,62 @@ function SortableItem({ link, updateSocialLink, removeSocialLink }) {
 }
 
 const Settings = () => {
-  const [profile, setProfile] = useState<UserProfile>(() => {
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [showSecretModal, setShowSecretModal] = useState(true);
+  const [isVerified, setIsVerified] = useState(false);
+  const router = useRouter();
+  const { userId } = router.query;
+
+  useEffect(() => {
+    // Check if there's a verified status in sessionStorage
+    const verified = sessionStorage.getItem(`verified_${userId}`);
+    if (verified === 'true') {
+      setIsVerified(true);
+      setShowSecretModal(false);
+    }
+  }, [userId]);
+
+  const verifySecretCode = async (code: string) => {
+    try {
+      const response = await fetch('/api/verify-code', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ code, userId }),
+      });
+
+      if (!response.ok) {
+        return false;
+      }
+
+      // Store verification status in sessionStorage
+      sessionStorage.setItem(`verified_${userId}`, 'true');
+      setIsVerified(true);
+      return true;
+    } catch (error) {
+      return false;
+    }
+  };
+
+  // Redirect to home if not verified
+  useEffect(() => {
+    if (!showSecretModal && !isVerified) {
+      router.push('/');
+    }
+  }, [showSecretModal, isVerified, router]);
+
+  if (!isVerified) {
+    return (
+      <SecretCodeModal
+        isOpen={showSecretModal}
+        onClose={() => setShowSecretModal(false)}
+        onVerify={verifySecretCode}
+      />
+    );
+  }
+
+  const [localProfile, setLocalProfile] = useState<UserProfile>(() => {
     const savedProfile = localStorage.getItem('userProfile');
     return savedProfile ? JSON.parse(savedProfile) : {
       name: '',
@@ -131,35 +188,35 @@ const Settings = () => {
   });
 
   const moveSocialLink = (id: string, direction: 'up' | 'down') => {
-    const index = profile.socialLinks.findIndex(link => link.id === id);
+    const index = localProfile.socialLinks.findIndex(link => link.id === id);
     if (
       (direction === 'up' && index === 0) || 
-      (direction === 'down' && index === profile.socialLinks.length - 1)
+      (direction === 'down' && index === localProfile.socialLinks.length - 1)
     ) {
       return;
     }
 
-    const newLinks = [...profile.socialLinks];
+    const newLinks = [...localProfile.socialLinks];
     const newIndex = direction === 'up' ? index - 1 : index + 1;
     [newLinks[index], newLinks[newIndex]] = [newLinks[newIndex], newLinks[index]];
     
-    setProfile(prev => ({ ...prev, socialLinks: newLinks }));
+    setLocalProfile(prev => ({ ...prev, socialLinks: newLinks }));
   };
 
   const updateProfile = (field: keyof Omit<UserProfile, 'socialLinks'>, value: string) => {
-    setProfile(prev => ({ ...prev, [field]: value }));
+    setLocalProfile(prev => ({ ...prev, [field]: value }));
   };
 
   const updateImageShape = (shape: 'circle' | 'square' | 'portrait') => {
-    setProfile(prev => ({ ...prev, imageShape: shape }));
+    setLocalProfile(prev => ({ ...prev, imageShape: shape }));
   };
 
   const updateImagePosition = (position: number) => {
-    setProfile(prev => ({ ...prev, imagePosition: position }));
+    setLocalProfile(prev => ({ ...prev, imagePosition: position }));
   };
 
   const addSocialLink = () => {
-    setProfile(prev => ({
+    setLocalProfile(prev => ({
       ...prev,
       socialLinks: [
         ...prev.socialLinks,
@@ -169,7 +226,7 @@ const Settings = () => {
   };
 
   const updateSocialLink = (id: string, field: 'platform' | 'url' | 'customPlatform', value: string) => {
-    setProfile(prev => ({
+    setLocalProfile(prev => ({
       ...prev,
       socialLinks: prev.socialLinks.map(link =>
         link.id === id ? { ...link, [field]: value } : link
@@ -178,7 +235,7 @@ const Settings = () => {
   };
 
   const removeSocialLink = (id: string) => {
-    setProfile(prev => ({
+    setLocalProfile(prev => ({
       ...prev,
       socialLinks: prev.socialLinks.filter(link => link.id !== id)
     }));
@@ -189,7 +246,7 @@ const Settings = () => {
   };
 
   const handleSave = () => {
-    localStorage.setItem('userProfile', JSON.stringify(profile));
+    localStorage.setItem('userProfile', JSON.stringify(localProfile));
     toast({
       title: "Settings saved successfully",
       duration: 2000,
@@ -214,7 +271,7 @@ const Settings = () => {
               <Input 
                 id="name" 
                 placeholder="Your name" 
-                value={profile.name}
+                value={localProfile.name}
                 onChange={(e) => updateProfile('name', e.target.value)}
               />
             </div>
@@ -224,7 +281,7 @@ const Settings = () => {
               <Input 
                 id="role" 
                 placeholder="Your current role" 
-                value={profile.role}
+                value={localProfile.role}
                 onChange={(e) => updateProfile('role', e.target.value)}
               />
             </div>
@@ -235,7 +292,7 @@ const Settings = () => {
                 id="email" 
                 type="email" 
                 placeholder="your.email@example.com"
-                value={profile.email}
+                value={localProfile.email}
                 onChange={(e) => updateProfile('email', e.target.value)}
               />
             </div>
@@ -246,7 +303,7 @@ const Settings = () => {
                 id="phone" 
                 type="tel" 
                 placeholder="+1 (123) 456-7890"
-                value={profile.phone}
+                value={localProfile.phone}
                 onChange={(e) => updateProfile('phone', e.target.value)}
               />
             </div>
@@ -256,7 +313,7 @@ const Settings = () => {
               <Textarea 
                 id="bio" 
                 placeholder="Write a short bio..."
-                value={profile.bio}
+                value={localProfile.bio}
                 onChange={(e) => updateProfile('bio', e.target.value)}
               />
             </div>
@@ -265,19 +322,19 @@ const Settings = () => {
               <Label htmlFor="avatar">Profile Picture</Label>
               <div className="flex items-center gap-4">
                 <div className={`relative ${
-                  profile.imageShape === 'circle' ? 'w-32 h-32 rounded-full' :
-                  profile.imageShape === 'square' ? 'w-32 h-32 rounded-[30px]' :
+                  localProfile.imageShape === 'circle' ? 'w-32 h-32 rounded-full' :
+                  localProfile.imageShape === 'square' ? 'w-32 h-32 rounded-[30px]' :
                   'w-32 h-48 rounded-[30px]'
                 } overflow-hidden shadow-lg hover:shadow-xl transition-shadow duration-300 bg-background/50 backdrop-blur-sm`}>
-                  {profile.avatar ? (
+                  {localProfile.avatar ? (
                     <div className="relative w-full h-full">
                       <img
-                        src={profile.avatar}
+                        src={localProfile.avatar}
                         alt="Profile"
                         className="absolute w-full h-auto min-h-full object-cover"
                         style={{
-                          top: `${-1 * profile.imagePosition}%`,
-                          transform: profile.imageShape === 'portrait' ? 'scale(1.2)' : 'scale(1.1)'
+                          top: `${-1 * localProfile.imagePosition}%`,
+                          transform: localProfile.imageShape === 'portrait' ? 'scale(1.2)' : 'scale(1.1)'
                         }}
                       />
                     </div>
@@ -299,7 +356,7 @@ const Settings = () => {
                         reader.onloadend = () => {
                           updateProfile('avatar', reader.result as string);
                           // Reset image position when new image is uploaded
-                          setProfile(prev => ({ ...prev, imagePosition: 50 }));
+                          setLocalProfile(prev => ({ ...prev, imagePosition: 50 }));
                         };
                         reader.readAsDataURL(file);
                       }
@@ -308,10 +365,10 @@ const Settings = () => {
                   <div className="flex gap-2">
                     <Button
                       type="button"
-                      variant={profile.imageShape === 'circle' ? 'secondary' : 'outline'}
+                      variant={localProfile.imageShape === 'circle' ? 'secondary' : 'outline'}
                       onClick={() => {
                         updateImageShape('circle');
-                        setProfile(prev => ({ ...prev, imagePosition: 50 }));
+                        setLocalProfile(prev => ({ ...prev, imagePosition: 50 }));
                       }}
                       size="sm"
                       className="rounded-full"
@@ -320,10 +377,10 @@ const Settings = () => {
                     </Button>
                     <Button
                       type="button"
-                      variant={profile.imageShape === 'square' ? 'secondary' : 'outline'}
+                      variant={localProfile.imageShape === 'square' ? 'secondary' : 'outline'}
                       onClick={() => {
                         updateImageShape('square');
-                        setProfile(prev => ({ ...prev, imagePosition: 50 }));
+                        setLocalProfile(prev => ({ ...prev, imagePosition: 50 }));
                       }}
                       size="sm"
                       className="rounded-xl"
@@ -332,10 +389,10 @@ const Settings = () => {
                     </Button>
                     <Button
                       type="button"
-                      variant={profile.imageShape === 'portrait' ? 'secondary' : 'outline'}
+                      variant={localProfile.imageShape === 'portrait' ? 'secondary' : 'outline'}
                       onClick={() => {
                         updateImageShape('portrait');
-                        setProfile(prev => ({ ...prev, imagePosition: 50 }));
+                        setLocalProfile(prev => ({ ...prev, imagePosition: 50 }));
                       }}
                       size="sm"
                       className="rounded-xl"
@@ -343,7 +400,7 @@ const Settings = () => {
                       Portrait
                     </Button>
                   </div>
-                  {profile.avatar && (
+                  {localProfile.avatar && (
                     <div className="space-y-2">
                       <Label>Head Position</Label>
                       <div className="flex items-center gap-2">
@@ -352,7 +409,7 @@ const Settings = () => {
                           type="range"
                           min="0"
                           max="100"
-                          value={profile.imagePosition}
+                          value={localProfile.imagePosition}
                           onChange={(e) => updateImagePosition(Number(e.target.value))}
                           className="flex-1"
                         />
@@ -376,7 +433,7 @@ const Settings = () => {
           </div>
           
           <div className="space-y-4">
-            {profile.socialLinks.map((link, index) => (
+            {localProfile.socialLinks.map((link, index) => (
               <div key={link.id} className="flex gap-4 items-start fade-in">
                 <div className="flex flex-col gap-1">
                   <Button
@@ -393,7 +450,7 @@ const Settings = () => {
                     size="sm"
                     className="p-0 h-6 hover:bg-transparent"
                     onClick={() => moveSocialLink(index, 'down')}
-                    disabled={index === profile.socialLinks.length - 1}
+                    disabled={index === localProfile.socialLinks.length - 1}
                   >
                     <ChevronDown className="h-4 w-4" />
                   </Button>
